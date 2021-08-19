@@ -1,11 +1,13 @@
-﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+﻿using AutoMapper;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MoviesAPI.DTOs;
 using MoviesAPI.Entities;
 using MoviesAPI.Filters;
-using MoviesAPI.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -16,60 +18,73 @@ namespace MoviesAPI.Controllers
 {
     [Route("api/genres")]
     [ApiController]
-    //[Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
 
     public class GenresController : ControllerBase
     {
-        private readonly IRepository repository;
         private readonly ILogger<GenresController> logger;
+        private readonly ApplicationDbContext context;
+        private readonly IMapper mapper;
 
-        public GenresController(IRepository repository,ILogger<GenresController> logger)
+        public GenresController(ILogger<GenresController> logger,ApplicationDbContext context, IMapper mapper)
         {
-            this.repository = repository;
             this.logger = logger;
+            this.context = context;
+            this.mapper = mapper;
         }
 
-        [HttpGet] //"api/genre"
-        [HttpGet("list")] //"api/genre/list"
-        //[ResponseCache(Duration =60)]
-        [ServiceFilter(typeof(MyActionFilter))]
-        public async Task<ActionResult<List<Genre>>> Get()
+        [HttpGet] //"api/genres"
+        public async Task<ActionResult<List<GenreDTO>>> Get()
         {
-            logger.LogInformation("Getting all the Genres");
-            return await repository.GetAllGenres();
+            var genres = await context.Genres.AsNoTracking().ToListAsync();
+            var genresDTOs = mapper.Map<List<GenreDTO>>(genres);
+            return genresDTOs;
         }
 
-        [HttpGet("{Id:int}",Name ="getGenre")] //"api/genres/Id"  
-        public ActionResult<Genre> Get(int Id, [FromHeader] string pram2)
+        [HttpGet("{Id:int}",Name = "getGenre")] //"api/genres/Id"  
+        public async Task<ActionResult<GenreDTO>> Get(int Id)
         {
-            logger.LogDebug("GetById method executing...");
-            var genre = repository.GetGenreById(Id);
-            if(genre == null)
+            var genre = await context.Genres.FirstOrDefaultAsync(x => x.Id == Id);
+
+            if (genre == null)
             {
-                logger.LogWarning($"Genre with {Id} not found");
-                throw new ApplicationException();
                 return NotFound();
             }
+            var genreDTO = mapper.Map<GenreDTO>(genre);
 
-            return genre;
+            return genreDTO; 
         }
 
         [HttpPost]
-        public ActionResult Post([FromBody] Genre genre)
+        public async Task<ActionResult> Post([FromBody] GenreCreationDTO genreCreation)
         {
-            repository.AddGenre(genre);
-            return new CreatedAtRouteResult("getGenre", new { Id = genre.Id }, genre);
+            var genre = mapper.Map<Genre>(genreCreation);
+            context.Add(genre);
+            await context.SaveChangesAsync();
+            var genreDTO = mapper.Map<GenreDTO>(genre);
+
+            return new CreatedAtRouteResult("getGenre", new { genreDTO.Id }, genreDTO);
         }
         
-        [HttpPut]
-        public ActionResult Put([FromBody] Genre genre)
+        [HttpPut("{id}")]
+        public async Task<ActionResult> Put(int id, [FromBody] GenreCreationDTO genreCreation)
         {
+            var genre = mapper.Map<Genre>(genreCreation);
+            genre.Id = id;
+            context.Entry(genre).State = EntityState.Modified;
+            await context.SaveChangesAsync();
             return NoContent();
         }
         
-        [HttpDelete]
-        public ActionResult Delete()
+        [HttpDelete("{id}")]
+        public async Task<ActionResult> Delete(int id)
         {
+            var exist = await context.Genres.AnyAsync(x => x.Id == id);
+            if (!exist)
+            {
+                return NotFound();
+            }
+            context.Remove(new Genre() { Id = id });
+            await context.SaveChangesAsync();
             return NoContent();
         }
     }
